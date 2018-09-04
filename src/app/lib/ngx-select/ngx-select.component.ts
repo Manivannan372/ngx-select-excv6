@@ -1,3 +1,7 @@
+
+import {from as observableFrom, of as observableOf, empty as observableEmpty, Subject, Observable, BehaviorSubject} from 'rxjs';
+
+import {mergeMap, map, merge, tap, combineLatest, distinctUntilChanged, share, toArray, filter} from 'rxjs/operators';
 import {
     AfterContentChecked, DoCheck, Input, Output, ViewChild,
     Component, ElementRef, EventEmitter, forwardRef, HostListener, IterableDiffer, IterableDiffers, ChangeDetectorRef, ContentChild,
@@ -5,21 +9,6 @@ import {
 } from '@angular/core';
 import {ControlValueAccessor, NG_VALUE_ACCESSOR} from '@angular/forms';
 import {DomSanitizer, SafeHtml} from '@angular/platform-browser';
-import {Subject} from 'rxjs/Subject';
-import {Observable} from 'rxjs/Observable';
-import {BehaviorSubject} from 'rxjs/BehaviorSubject';
-import 'rxjs/add/observable/empty';
-import 'rxjs/add/observable/from';
-import 'rxjs/add/observable/of';
-import 'rxjs/add/operator/distinctUntilChanged';
-import 'rxjs/add/operator/combineLatest';
-import 'rxjs/add/operator/mergeMap';
-import 'rxjs/add/operator/toArray';
-import 'rxjs/add/operator/filter';
-import 'rxjs/add/operator/share';
-import 'rxjs/add/operator/merge';
-import 'rxjs/add/operator/map';
-import 'rxjs/add/operator/do';
 import * as lodashNs from 'lodash';
 import * as escapeStringNs from 'escape-string-regexp';
 import {NgxSelectOptGroup, NgxSelectOption, TSelectOption} from './ngx-select.classes';
@@ -134,20 +123,20 @@ export class NgxSelectComponent implements INgxSelectOptions, ControlValueAccess
         this.typed.subscribe((text: string) => this.subjSearchText.next(text));
         this.subjOptionsSelected.subscribe((options: NgxSelectOption[]) => this.selectionChanges.emit(options));
         let cacheExternalValue: any[];
-        const subjActualValue = this.subjExternalValue
-            .map((v: any[]) => cacheExternalValue = v === null ? [] : [].concat(v))
-            .merge(this.subjOptionsSelected.map((options: NgxSelectOption[]) =>
+        const subjActualValue = this.subjExternalValue.pipe(
+            map((v: any[]) => cacheExternalValue = v === null ? [] : [].concat(v)),
+            merge(this.subjOptionsSelected.pipe(map((options: NgxSelectOption[]) =>
                 options.map((o: NgxSelectOption) => o.value)
-            ))
-            .combineLatest(this.subjDefaultValue, (eVal: any[], dVal: any[]) => {
+            ))),
+            combineLatest(this.subjDefaultValue, (eVal: any[], dVal: any[]) => {
                 const newVal = _.isEqual(eVal, dVal) ? [] : eVal;
                 return newVal.length ? newVal : dVal;
-            })
-            .distinctUntilChanged((x, y) => _.isEqual(x, y))
-            .share();
+            }),
+            distinctUntilChanged((x, y) => _.isEqual(x, y)),
+            share(),);
 
-        subjActualValue
-            .combineLatest(this.subjRegisterOnChange, (actualValue: any[]) => actualValue)
+        subjActualValue.pipe(
+            combineLatest(this.subjRegisterOnChange, (actualValue: any[]) => actualValue))
             .subscribe((actualValue: any[]) => {
                 this.actualValue = actualValue;
                 if (!_.isEqual(actualValue, cacheExternalValue)) {
@@ -160,38 +149,37 @@ export class NgxSelectComponent implements INgxSelectOptions, ControlValueAccess
                 }
             });
 
-        this.subjOptions
-            .flatMap((options: TSelectOption[]) => Observable
-                .from(options)
-                .flatMap((option: TSelectOption) => option instanceof NgxSelectOption
-                    ? Observable.of(option)
-                    : (option instanceof NgxSelectOptGroup ? Observable.from(option.options) : Observable.empty())
-                )
-                .toArray()
-            )
-            .combineLatest(subjActualValue, (optionsFlat: NgxSelectOption[], actualValue: any[]) => {
-                Observable.from(optionsFlat)
-                    .filter((option: NgxSelectOption) => actualValue.indexOf(option.value) !== -1)
-                    .toArray()
-                    .filter((options: NgxSelectOption[]) => !_.isEqual(options, this.subjOptionsSelected.value))
+        this.subjOptions.pipe(
+            mergeMap((options: TSelectOption[]) => observableFrom(options).pipe(
+                mergeMap((option: TSelectOption) => option instanceof NgxSelectOption
+                    ? observableOf(option)
+                    : (option instanceof NgxSelectOptGroup ? observableFrom(option.options) : observableEmpty())
+                ),
+                toArray(),)
+            ),
+            combineLatest(subjActualValue, (optionsFlat: NgxSelectOption[], actualValue: any[]) => {
+                observableFrom(optionsFlat).pipe(
+                    filter((option: NgxSelectOption) => actualValue.indexOf(option.value) !== -1),
+                    toArray(),
+                    filter((options: NgxSelectOption[]) => !_.isEqual(options, this.subjOptionsSelected.value)),)
                     .subscribe((options: NgxSelectOption[]) => this.subjOptionsSelected.next(options));
-            })
+            }),)
             .subscribe();
 
-        this.subjOptions
-            .combineLatest(this.subjOptionsSelected, this.subjSearchText,
+        this.subjOptions.pipe(
+            combineLatest(this.subjOptionsSelected, this.subjSearchText,
                 (options: TSelectOption[], selectedOptions: NgxSelectOption[], search: string) => {
                     this.optionsFiltered = this.filterOptions(search, options, selectedOptions);
                     this.cacheOptionsFilteredFlat = null;
                     this.navigateOption(ENavigation.firstIfOptionActiveInvisible);
                     return selectedOptions;
                 }
-            )
-            .flatMap((selectedOptions: NgxSelectOption[]) => {
-                return this.optionsFilteredFlat().filter((flatOptions: NgxSelectOption[]) =>
+            ),
+            mergeMap((selectedOptions: NgxSelectOption[]) => {
+                return this.optionsFilteredFlat().pipe(filter((flatOptions: NgxSelectOption[]) =>
                     this.autoSelectSingleOption && flatOptions.length === 1 && !selectedOptions.length
-                );
-            })
+                ));
+            }),)
             .subscribe((flatOptions: NgxSelectOption[]) => this.subjOptionsSelected.next(flatOptions));
     }
 
@@ -236,22 +224,22 @@ export class NgxSelectComponent implements INgxSelectOptions, ControlValueAccess
 
     private optionsFilteredFlat(): Observable<NgxSelectOption[]> {
         if (this.cacheOptionsFilteredFlat) {
-            return Observable.of(this.cacheOptionsFilteredFlat);
+            return observableOf(this.cacheOptionsFilteredFlat);
         }
 
-        return Observable.from(this.optionsFiltered)
-            .flatMap<TSelectOption, NgxSelectOption>((option: TSelectOption) =>
-                option instanceof NgxSelectOption ? Observable.of(option) :
-                    (option instanceof NgxSelectOptGroup ? Observable.from(option.optionsFiltered) : Observable.empty())
-            )
-            .filter((optionsFilteredFlat: NgxSelectOption) => !optionsFilteredFlat.disabled)
-            .toArray()
-            .do((optionsFilteredFlat: NgxSelectOption[]) => this.cacheOptionsFilteredFlat = optionsFilteredFlat);
+        return observableFrom(this.optionsFiltered).pipe(
+            mergeMap<TSelectOption, NgxSelectOption>((option: TSelectOption) =>
+                option instanceof NgxSelectOption ? observableOf(option) :
+                    (option instanceof NgxSelectOptGroup ? observableFrom(option.optionsFiltered) : observableEmpty())
+            ),
+            filter((optionsFilteredFlat: NgxSelectOption) => !optionsFilteredFlat.disabled),
+            toArray(),
+            tap((optionsFilteredFlat: NgxSelectOption[]) => this.cacheOptionsFilteredFlat = optionsFilteredFlat),);
     }
 
     private navigateOption(navigation: ENavigation) {
-        this.optionsFilteredFlat()
-            .map<NgxSelectOption[], INgxOptionNavigated>((options: NgxSelectOption[]) => {
+        this.optionsFilteredFlat().pipe(
+            map<NgxSelectOption[], INgxOptionNavigated>((options: NgxSelectOption[]) => {
                 const navigated: INgxOptionNavigated = {index: -1, activeOption: null, filteredOptionList: options};
                 let newActiveIdx;
                 switch (navigation) {
@@ -281,7 +269,7 @@ export class NgxSelectComponent implements INgxSelectOptions, ControlValueAccess
                 }
                 navigated.activeOption = options[navigated.index];
                 return navigated;
-            })
+            }))
             .subscribe((newNavigated: INgxOptionNavigated) => this.optionActivate(newNavigated));
     }
 

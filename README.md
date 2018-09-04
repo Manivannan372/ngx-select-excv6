@@ -9,9 +9,7 @@
 
 Native Angular component for Select
 
-- Requires [Angular](https://angular.io/) version 5 or higher!
-- Compatible with [Angular](https://angular.io/) version 4.
-- Compatible with [Bootstrap 3](https://getbootstrap.com/docs/3.3/) and **[Bootstrap 4](https://getbootstrap.com/)**
+- Requires [Angular](https://angular.io/) version 6!
 
 ## Usage
 
